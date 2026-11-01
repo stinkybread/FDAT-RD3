@@ -466,5 +466,4 @@ FDAT        windowed spatial + channel attention, AIM gates          github.com/
 FDAT-RD3 keeps FDAT-RD's body and adds the pre-resize stem and the deployment graph. An
 intermediate version with only the pre-resize stem was used internally and never released, which is
 why the version number skips. FDAT-RD3 files carry their own `MetaFDATRD3` marker so they never
-clash with FDAT or FDAT-RD files in spandrel or traiNNer, and the unrelated square-window `FDAT3`
-in traiNNer is a different network.
+clash with FDAT or FDAT-RD files in spandrel or traiNNer.
