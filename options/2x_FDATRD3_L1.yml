@@ -54,7 +54,7 @@ datasets:
 #####################################################################
 # Generator model settings
 network_g:
-  type: fdat_rd3_medium  # FDAT-RD2 network, TRT-optimised graph (same weights)
+  type: fdat_rd3_medium  # 128 channels, 4 groups x 6 blocks; see README section 3
   resize_kernel: mitchell
 
 

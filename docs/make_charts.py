@@ -23,7 +23,6 @@ COLOR = {"FDAT-RD3": "#2a78d6", "FDAT": "#eb6834", "ESRGAN": "#1baf7a"}
 ORDER = ["FDAT-RD3", "FDAT", "ESRGAN"]
 
 # Real-world VapourKit fps, 720x540 -> 1440x1080, RTX 4080, TensorRT 11, with encoding.
-# FDAT-RD2 is the same network as FDAT-RD3 before the graph rewrite.
 SPEED = {"FDAT-RD3": 18.0, "FDAT": 11.0, "ESRGAN": 17.0}
 
 for f in font_manager.findSystemFonts():
