@@ -1,0 +1,116 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/the-database/traiNNer-redux/refs/heads/master/schemas/redux-config.schema.json
+#########################################################################################
+# General Settings
+# https://trainner-redux.readthedocs.io/en/latest/config_reference.html#top-level-options
+#########################################################################################
+name: 2x_FDATRD3_L1
+scale: 2  # 1, 2, 3, 4, 8
+use_amp: true  # Speed up training and reduce VRAM usage. NVIDIA only.
+amp_bf16: true  # Use bf16 instead of fp16 for AMP, RTX 3000 series or newer only. Only recommended if fp16 doesn't work.
+use_channels_last: false  # Enable channels last memory format while using AMP. Reduces VRAM and speeds up training for most architectures, but some architectures are slower with channels last.
+fast_matmul: false  # Trade precision for performance.
+use_compile: false  # Enable torch.compile for generator. Takes time on startup to compile the model, but can speed up training after the model is compiled.
+compile_mode: default  # Mode to use with torch.compile. See https://docs.pytorch.org/docs/stable/generated/torch.compile.html for more info.
+num_gpu: auto
+manual_seed: 42  # Random seed for training, useful for removing randomness when testing the effect of different settings.
+
+
+########################################################################################################################
+# Dataset and Dataloader Settings
+# https://trainner-redux.readthedocs.io/en/latest/config_reference.html#dataset-options-datasets-train-and-datasets-val
+########################################################################################################################
+datasets:
+  train:
+    name: Train Dataset
+    type: pairedimagedataset
+    dataroot_gt: [
+      datasets/train/hr,
+    ]
+    dataroot_lq: [
+      datasets/train/lr,
+    ]
+
+    lq_size: 120  # 60x60 body after resize+unshuffle4: a multiple of the 10x30 windows, no padding
+    use_hflip: true
+    use_rot: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 16
+    accum_iter: 1
+
+  val:
+    name: Val Dataset
+    type: pairedimagedataset
+    dataroot_gt: [
+      datasets/val/hr,
+    ]
+    dataroot_lq: [
+      datasets/val/lr,
+    ]
+
+
+#####################################################################
+# Network Settings
+# https://trainner-redux.readthedocs.io/en/latest/arch_reference.html
+#####################################################################
+# Generator model settings
+network_g:
+  type: fdat_rd3_medium  # FDAT-RD2 network, TRT-optimised graph (same weights)
+  resize_kernel: mitchell
+
+
+#########################################################################################
+# Pretrain and Resume Paths
+# https://trainner-redux.readthedocs.io/en/latest/config_reference.html#path-options-path
+#########################################################################################
+path:
+  pretrain_network_g: ~
+  param_key_g: ~
+  strict_load_g: true
+  resume_state: ~
+
+train:
+  ema_decay: 0.999
+  ema_power: 0.75
+  grad_clip: false
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [100000, 125000, 150000, 175000]
+    gamma: 0.5
+
+  total_iter: 200000
+  warmup_iter: -1
+
+  losses:
+    - type: charbonnierloss
+      loss_weight: 1.0
+
+val:
+  val_enabled: true
+  val_freq: 5000
+  save_img: true
+  tile_size: 0
+  tile_overlap: 8
+  metrics_enabled: true
+  metrics:
+    topiq:
+      type: calculate_topiq
+    psnr:
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 4
+      test_y_channel: false
+
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: 5000
+  save_checkpoint_format: safetensors
+  use_tb_logger: true

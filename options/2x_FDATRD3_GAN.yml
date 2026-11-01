@@ -1,0 +1,182 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/the-database/traiNNer-redux/refs/heads/master/schemas/redux-config.schema.json
+#########################################################################################
+# General Settings
+# https://trainner-redux.readthedocs.io/en/latest/config_reference.html#top-level-options
+#########################################################################################
+name: 2x_FDATRD3_GAN
+scale: 2  # 1, 2, 3, 4, 8
+use_amp: true  # Speed up training and reduce VRAM usage. NVIDIA only.
+amp_bf16: true  # Use bf16 instead of fp16 for AMP, RTX 3000 series or newer only. Only recommended if fp16 doesn't work.
+use_channels_last: false  # Enable channels last memory format while using AMP. Reduces VRAM and speeds up training for most architectures, but some architectures are slower with channels last.
+fast_matmul: false  # Trade precision for performance.
+use_compile: false  # Enable torch.compile for generator. Takes time on startup to compile the model, but can speed up training after the model is compiled.
+compile_mode: default  # Mode to use with torch.compile. See https://docs.pytorch.org/docs/stable/generated/torch.compile.html for more info.
+num_gpu: auto
+manual_seed: 42  # Random seed for training, useful for removing randomness when testing the effect of different settings.
+
+
+########################################################################################################################
+# Dataset and Dataloader Settings
+# https://trainner-redux.readthedocs.io/en/latest/config_reference.html#dataset-options-datasets-train-and-datasets-val
+########################################################################################################################
+datasets:
+  train:
+    name: Train Dataset
+    type: pairedimagedataset
+    dataroot_gt: [
+      datasets/train/hr,
+    ]
+    dataroot_lq: [
+      datasets/train/lr,
+    ]
+
+    lq_size: 240
+    use_hflip: true
+    use_rot: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 4
+    accum_iter: 4
+
+  val:
+    name: Val Dataset
+    type: singleimagedataset
+    dataroot_lq: [
+      datasets/val/lr,
+    ]
+
+network_g:
+  type: fdat_rd3_medium  # FDAT-RD2 network, TRT-optimised graph (same weights)
+  resize_kernel: mitchell
+
+# Discriminator model settings
+network_d:
+  type: dunet  # dunet, metagan2, unetdiscriminatorsn
+
+#########################################################################################
+# Pretrain and Resume Paths
+# https://trainner-redux.readthedocs.io/en/latest/config_reference.html#path-options-path
+#########################################################################################
+path:
+  pretrain_network_g: experiments/2x_FDATRD3_L1/models/net_g_ema_200000.safetensors  # start from an L1 run (or an RD/RD2 checkpoint ported with the converter)
+  param_key_g: ~
+  strict_load_g: true    # Disable strict loading to partially load a pretrain model with a different scale
+  resume_state: ~
+
+###########################################################################################
+# Training Settings
+# https://trainner-redux.readthedocs.io/en/latest/config_reference.html#train-options-train
+###########################################################################################
+train:
+  ema_decay: 0.999
+  grad_clip: false  # Gradient clipping allows more stable training when using higher learning rates.
+  grad_clip_max_norm: 100  # Max norm of gradients for gradient clipping.
+  # Optimizer for generator model
+  optim_g:
+    type: AdamW
+    lr: !!float 1e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+  # Optimizer for discriminator model
+  optim_d:
+    type: AdamW
+    lr: !!float 1e-4
+    weight_decay: 0
+    betas: [0.9, 0.99]
+
+  scheduler:
+    type: MultiStepLR
+    milestones: [75000, 100000, 125000]
+    gamma: 0.5
+
+  total_iter: 300000  # Total number of iterations.
+  warmup_iter: -1  # Gradually ramp up learning rates until this iteration, to stabilize early training. Use -1 to disable.
+
+  # Losses - for any loss set the loss_weight to 0 to disable it.
+  # https://trainner-redux.readthedocs.io/en/latest/loss_reference.html
+  losses:
+    # MS-SSIM loss
+    - type: mssimloss
+      loss_weight: 0.5
+    # Perceptual loss
+    - type: perceptualloss
+      criterion: pd+l1  # charbonnier, l1, pd+l1, fd+l1, pd, fd
+      loss_weight: 0.2
+    - type: l1loss
+      reduction: mean
+      loss_weight: 0
+    # HSLuv loss (hue, saturation, lightness)
+    - type: hsluvloss
+      criterion: charbonnier
+      loss_weight: 1.0
+    # GAN loss
+    - type: ganloss
+      gan_type: vanilla
+      loss_weight: 0.1
+    # Additional losses - disabled by default.
+    # To enable, change the loss_weight from 0 to the recommended loss_weight which appears as a comment next to the loss weight.
+    # For example to enable DISTS loss, change the loss weight from 0 to 0.25; to enable color loss change loss weight from 0 to 1.
+    # DISTS perceptual loss
+    - type: distsloss
+      loss_weight: 0  # 0.3
+    # LDL loss
+    - type: ldlloss
+      loss_weight: 0  # 1.0
+    # FF loss
+    - type: ffloss
+      loss_weight: 0.2  # 0.2
+    # RGB Cosine Similarity loss
+    - type: cosimloss
+      loss_weight: 0  # 1.0
+    # NVIDIA FLIP loss
+    - type: fliploss
+      loss_weight: 0  # 1.0
+    # Sobel edge loss
+    - type: sobeledgeloss
+      loss_weight: 0  # 1.0
+
+  # Mix of Augmentations (MoA)
+  use_moa: false  # Whether to enable mixture of augmentations, which augments the dataset on the fly to create more variety and help the model generalize.
+  moa_augs: ['none', 'mixup', 'cutmix', 'resizemix', 'cutblur']  # The list of augmentations to choose from, only one is selected per iteration.
+  moa_probs: [0.4, 0.084, 0.084, 0.084, 0.348]  # The probability each augmentation in moa_augs will be applied. Total should add up to 1.
+  moa_debug: false  # Save images before and after augment to debug/moa folder inside of the root training directory.
+  moa_debug_limit: 100  # The max number of iterations to save augmentation images for.
+
+##############################################################################################
+# Validation
+# https://trainner-redux.readthedocs.io/en/latest/config_reference.html#validation-options-val
+##############################################################################################
+val:
+  val_enabled: true  # Whether to enable validations. If disabled, all validation settings below are ignored.
+  val_freq: 1000  # How often to run validations, in iterations.
+  save_img: true  # Whether to save the validation images during validation, in the experiments/<name>/visualization folder.
+  tile_size: 0  # Tile size of input, reduce VRAM usage but slower inference. 0 to disable.
+  tile_overlap: 8  # Number of pixels to overlap tiles by, larger is slower but reduces tile seams.
+
+  metrics_enabled: false  # Whether to run metrics calculations during validation.
+  metrics:
+    topiq:
+      type: calculate_topiq
+    psnr:
+      type: calculate_psnr
+      crop_border: 4
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 4  # Whether to crop border during validation.
+      test_y_channel: false  # Whether to convert to Y(CbCr) for validation.
+    lpips:
+      type: calculate_lpips
+      better: lower
+    dists:
+      type: calculate_dists
+      better: lower
+
+##############################################################################################
+# Logging
+# https://trainner-redux.readthedocs.io/en/latest/config_reference.html#logging-options-logger
+##############################################################################################
+logger:
+  print_freq: 100
+  save_checkpoint_freq: 1000
+  save_checkpoint_format: safetensors
+  use_tb_logger: true
